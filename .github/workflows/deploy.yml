@@ -1,0 +1,39 @@
+name: Deploy a AWS Lambda
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v3
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Configurar AWS CLI
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Empaquetar código
+        run: zip -r lambda.zip . -x "*.git*" -x "node_modules/.cache/*"
+
+      - name: Desplegar Lambdas
+        run: |
+          aws lambda update-function-code --function-name crearInvitado --zip-file fileb://lambda.zip
+          aws lambda update-function-code --function-name limpiarInvitados --zip-file fileb://lambda.zip

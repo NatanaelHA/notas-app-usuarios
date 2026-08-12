@@ -1,0 +1,4 @@
+node_modules/
+lambda.zip
+.env
+*.env
