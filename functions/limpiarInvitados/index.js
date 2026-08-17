@@ -13,7 +13,7 @@ exports.handler = async () => {
 
   try {
     const invitados = await obtenerInvitadosOrdenadosPorFecha()
-    const vencidos = filtrarInvitadosVencidos(invitados, 24)
+    const vencidos = filtrarInvitadosVencidos(invitados, 5 / 60)
 
     for (const invitado of vencidos) {
       const username = invitado.Username
