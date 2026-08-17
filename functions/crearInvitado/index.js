@@ -32,11 +32,11 @@ exports.handler = async () => {
       const username = masViejo.Username
       const subAttr = masViejo.Attributes.find((a) => a.Name === 'sub')
 
-      await eliminarInvitado(username)
-
       if (subAttr?.Value) {
         await publicarInvitadoEliminado(subAttr.Value)
       }
+
+      await eliminarInvitado(username)
 
       console.log(`Límite alcanzado, invitado más viejo eliminado: ${username}`)
     }

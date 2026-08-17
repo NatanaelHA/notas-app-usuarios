@@ -22,11 +22,11 @@ exports.handler = async () => {
         const subAttr = invitado.Attributes.find((a) => a.Name === 'sub')
         const userId = subAttr?.Value
 
-        await eliminarInvitado(username)
-
         if (userId) {
           await publicarInvitadoEliminado(userId)
         }
+
+        await eliminarInvitado(username)
 
         console.log(`Invitado eliminado correctamente: ${username}`)
         exitosos++

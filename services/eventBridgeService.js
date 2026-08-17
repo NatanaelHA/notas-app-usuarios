@@ -3,7 +3,7 @@ const { EventBridgeClient, PutEventsCommand } = require('@aws-sdk/client-eventbr
 const eventBridge = new EventBridgeClient({ region: 'us-east-1' })
 
 const publicarInvitadoEliminado = async (userId) => {
-  await eventBridge.send(new PutEventsCommand({
+  const resultado = await eventBridge.send(new PutEventsCommand({
     Entries: [
       {
         Source: 'notas-app.usuarios',
@@ -16,6 +16,16 @@ const publicarInvitadoEliminado = async (userId) => {
       },
     ],
   }))
+
+  if (resultado.FailedEntryCount > 0) {
+    const entradasFallidas = (resultado.Entries || []).filter(
+      (entrada) => entrada.ErrorCode || entrada.ErrorMessage,
+    )
+
+    throw new Error(
+      `No se pudo publicar InvitadoEliminado: ${JSON.stringify(entradasFallidas)}`,
+    )
+  }
 }
 
 module.exports = {
