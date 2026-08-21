@@ -45,7 +45,7 @@ exports.handler = async () => {
     const email = `invitado-${sufijo}@invitado.notasapp.local`
     const password = generarPassword()
 
-    await cognito.send(
+    const resultadoCreacion = await cognito.send(
       new AdminCreateUserCommand({
         UserPoolId: USER_POOL_ID,
         Username: email,
@@ -58,6 +58,11 @@ exports.handler = async () => {
       }),
     )
 
+    const username = resultadoCreacion.User?.Username || email
+    const userId = resultadoCreacion.User?.Attributes?.find(
+      (atributo) => atributo.Name === 'sub',
+    )?.Value
+
     await cognito.send(
       new AdminSetUserPasswordCommand({
         UserPoolId: USER_POOL_ID,
@@ -66,6 +71,12 @@ exports.handler = async () => {
         Permanent: true,
       }),
     )
+
+    console.log('Invitado creado', {
+      username,
+      email,
+      userId,
+    })
 
     return response(201, { email, password })
   } catch (error) {
