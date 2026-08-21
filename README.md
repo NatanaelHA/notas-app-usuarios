@@ -101,6 +101,8 @@ Este orden evita perder la solicitud de limpieza:
 
 `eventBridgeService` verifica `FailedEntryCount`. Si AWS informa una entrada fallida, lanza un error e impide que el flujo continúe hacia la eliminación en Cognito.
 
+La regla de EventBridge `invitadoEliminadoARegistroNotas` tiene configurada la cola SQS `eventos-invitados-fallidos` como DLQ. Si `eliminarNotasInvitado` agota todos los reintentos sin éxito, EventBridge deposita allí el evento original, incluido el `userId`, para que el fallo pueda revisarse y recuperarse manualmente. Esta redirección se configura en AWS sobre el destino de la regla y no desde el código de este servicio.
+
 Cuando el fallo ocurre dentro de `limpiarInvitados`, se registra el `username` afectado y el resumen final informa cuántos invitados se eliminaron y cuántos fallaron. Los usuarios fallidos permanecen disponibles para la siguiente ejecución horaria.
 
 ## Servicios AWS utilizados
@@ -111,6 +113,7 @@ Cuando el fallo ocurre dentro de `limpiarInvitados`, se registra el `username` a
 | API Gateway | Expone públicamente el endpoint para crear invitados. |
 | Amazon Cognito | Almacena y administra las cuentas de usuario. |
 | Amazon EventBridge | Ejecuta la limpieza horaria y transporta `InvitadoEliminado`. |
+| Amazon SQS | Conserva en `eventos-invitados-fallidos` los eventos que agotaron los reintentos del destino de EventBridge. |
 | Amazon CloudWatch | Registra logs y métricas de las funciones. |
 
 ## Lambdas
