@@ -2,17 +2,17 @@ const { EventBridgeClient, PutEventsCommand } = require('@aws-sdk/client-eventbr
 
 const eventBridge = new EventBridgeClient({ region: 'us-east-1' })
 
-const publicarInvitadoEliminado = async (userId) => {
+/* ------------------------------------------------------------------------- */
+/* PUBLICACIÓN COMPARTIDA                                                    */
+/* ------------------------------------------------------------------------- */
+
+const publicarEvento = async (detailType, detail) => {
   const resultado = await eventBridge.send(new PutEventsCommand({
     Entries: [
       {
         Source: 'notas-app.usuarios',
-        DetailType: 'InvitadoEliminado',
-        Detail: JSON.stringify({
-          tipo: 'InvitadoEliminado',
-          userId,
-          eliminadoEn: new Date().toISOString(),
-        }),
+        DetailType: detailType,
+        Detail: JSON.stringify(detail),
       },
     ],
   }))
@@ -23,11 +23,40 @@ const publicarInvitadoEliminado = async (userId) => {
     )
 
     throw new Error(
-      `No se pudo publicar InvitadoEliminado: ${JSON.stringify(entradasFallidas)}`,
+      `No se pudo publicar ${detailType}: ${JSON.stringify(entradasFallidas)}`,
     )
   }
 }
 
+/* ------------------------------------------------------------------------- */
+/* USUARIOS INVITADOS                                                        */
+/* ------------------------------------------------------------------------- */
+
+const publicarInvitadoEliminado = async (userId) => {
+  await publicarEvento('InvitadoEliminado', {
+    tipo: 'InvitadoEliminado',
+    userId,
+    eliminadoEn: new Date().toISOString(),
+  })
+}
+
+/* ------------------------------------------------------------------------- */
+/* USUARIOS REALES                                                           */
+/* ------------------------------------------------------------------------- */
+
+const publicarUsuarioParaLimpieza = async (userId, email) => {
+  await publicarEvento('UsuarioParaLimpieza', {
+    tipo: 'UsuarioParaLimpieza',
+    userId,
+    email,
+    programadoEn: new Date().toISOString(),
+  })
+}
+
 module.exports = {
+  // Invitados
   publicarInvitadoEliminado,
+
+  // Usuarios reales
+  publicarUsuarioParaLimpieza,
 }
