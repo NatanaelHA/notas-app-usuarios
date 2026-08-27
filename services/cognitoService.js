@@ -7,7 +7,11 @@ const {
 const cognito = new CognitoIdentityProviderClient({ region: 'us-east-1' })
 const USER_POOL_ID = 'us-east-1_fn7wolGpK'
 
-const obtenerInvitadosOrdenadosPorFecha = async () => {
+/* ------------------------------------------------------------------------- */
+/* CONSULTAS COMPARTIDAS                                                     */
+/* ------------------------------------------------------------------------- */
+
+const obtenerUsuariosConfirmados = async () => {
   const usuarios = []
   let paginationToken
 
@@ -23,6 +27,16 @@ const obtenerInvitadosOrdenadosPorFecha = async () => {
     usuarios.push(...(result.Users || []))
     paginationToken = result.PaginationToken
   } while (paginationToken)
+
+  return usuarios
+}
+
+/* ------------------------------------------------------------------------- */
+/* USUARIOS INVITADOS                                                        */
+/* ------------------------------------------------------------------------- */
+
+const obtenerInvitadosOrdenadosPorFecha = async () => {
+  const usuarios = await obtenerUsuariosConfirmados()
 
   const invitados = usuarios.filter((usuario) =>
     usuario.Attributes.some(
@@ -57,8 +71,40 @@ const filtrarInvitadosVencidos = (invitados, horasLimite = 24) => {
   })
 }
 
+/* ------------------------------------------------------------------------- */
+/* USUARIOS REALES                                                           */
+/* ------------------------------------------------------------------------- */
+
+const obtenerUsuariosReales = async () => {
+  const usuarios = await obtenerUsuariosConfirmados()
+
+  return usuarios
+    .filter(
+      (usuario) =>
+        !usuario.Attributes?.some(
+          (attr) =>
+            attr.Name === 'custom:esInvitado' && attr.Value === 'true',
+        ),
+    )
+    .map((usuario) => {
+      const obtenerAtributo = (nombre) =>
+        usuario.Attributes?.find((attr) => attr.Name === nombre)?.Value
+
+      return {
+        username: usuario.Username,
+        userId: obtenerAtributo('sub'),
+        email: obtenerAtributo('email'),
+        emailVerificado: obtenerAtributo('email_verified') === 'true',
+      }
+    })
+}
+
 module.exports = {
+  // Invitados
   obtenerInvitadosOrdenadosPorFecha,
   eliminarInvitado,
   filtrarInvitadosVencidos,
+
+  // Usuarios reales
+  obtenerUsuariosReales,
 }

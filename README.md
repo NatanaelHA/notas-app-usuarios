@@ -49,7 +49,7 @@ Antes de crear una cuenta, la función cuenta los invitados existentes. Si ya ex
 ### Limpieza automática de invitados
 
 ```text
-Regla programada de EventBridge (cada hora)
+Programación de EventBridge Scheduler (cada hora)
     ↓
 limpiarInvitados
     ↓
@@ -71,17 +71,25 @@ Un invitado no necesariamente desaparece al cumplir exactamente 24 horas: se eli
 ```text
 notas-app-usuarios
     ↓ publica InvitadoEliminado
-EventBridge
+EventBridge (regla invitadoEliminadoARegistroNotas)
     ↓
 eliminarNotasInvitado, en notas-app-backend
-    ↓
-DynamoDB
+    ↓ consulta las notas activas en DynamoDB
+    ├─ si existen, publica resumen_invitado en SQS (notas-emails)
+    │      ↓
+    │  mailer, en notas-app-notifications
+    │      ↓
+    │  SES envía el resumen al correo de auditoría
+    │
+    └─ después elimina todas las notas del invitado
 ```
 
-La regla programada y `InvitadoEliminado` cumplen funciones diferentes:
+La programación y `InvitadoEliminado` cumplen funciones diferentes:
 
-- La regla programada funciona como reloj y ejecuta `limpiarInvitados` cada hora.
+- EventBridge Scheduler funciona como reloj y ejecuta `limpiarInvitados` cada hora.
 - `InvitadoEliminado` es un evento de dominio publicado una vez por cada invitado que debe eliminarse.
+
+El servicio de notas publica en `notas-emails` un mensaje de tipo `resumen_invitado` antes de borrar las notas. El servicio de notificaciones lo consume y envía por SES un correo de auditoría con las notas activas que conservaba el invitado.
 
 ## Orden de eliminación y manejo de fallos
 
@@ -101,6 +109,8 @@ Este orden evita perder la solicitud de limpieza:
 
 `eventBridgeService` verifica `FailedEntryCount`. Si AWS informa una entrada fallida, lanza un error e impide que el flujo continúe hacia la eliminación en Cognito.
 
+La regla de EventBridge `invitadoEliminadoARegistroNotas` tiene configurada la cola SQS `eventos-invitados-fallidos` como DLQ. Si `eliminarNotasInvitado` agota todos los reintentos sin éxito, EventBridge deposita allí el evento original, incluido el `userId`, para que el fallo pueda revisarse y recuperarse manualmente. Esta redirección se configura en AWS sobre el destino de la regla y no desde el código de este servicio.
+
 Cuando el fallo ocurre dentro de `limpiarInvitados`, se registra el `username` afectado y el resumen final informa cuántos invitados se eliminaron y cuántos fallaron. Los usuarios fallidos permanecen disponibles para la siguiente ejecución horaria.
 
 ## Servicios AWS utilizados
@@ -110,7 +120,9 @@ Cuando el fallo ocurre dentro de `limpiarInvitados`, se registra el `username` a
 | AWS Lambda | Ejecuta `crearInvitado` y `limpiarInvitados`. |
 | API Gateway | Expone públicamente el endpoint para crear invitados. |
 | Amazon Cognito | Almacena y administra las cuentas de usuario. |
-| Amazon EventBridge | Ejecuta la limpieza horaria y transporta `InvitadoEliminado`. |
+| Amazon EventBridge Scheduler | Ejecuta `limpiarInvitados` cada hora. |
+| Amazon EventBridge | Transporta `InvitadoEliminado` mediante el Event Bus y su regla. |
+| Amazon SQS | Conserva en `eventos-invitados-fallidos` los eventos que agotaron los reintentos del destino de EventBridge. |
 | Amazon CloudWatch | Registra logs y métricas de las funciones. |
 
 ## Lambdas
@@ -118,7 +130,7 @@ Cuando el fallo ocurre dentro de `limpiarInvitados`, se registra el `username` a
 | Función | Activación | Descripción |
 |---|---|---|
 | `crearInvitado` | API Gateway | Crea una cuenta temporal y elimina la más antigua si se alcanza el máximo de 50. |
-| `limpiarInvitados` | Regla programada | Elimina invitados creados hace más de 24 horas. |
+| `limpiarInvitados` | EventBridge Scheduler | Elimina invitados creados hace más de 24 horas. |
 
 ## Endpoint
 
@@ -216,7 +228,7 @@ AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
 ```
 
-> El workflow actualiza código existente. La creación de Lambdas, API Gateway, Cognito, reglas de EventBridge, targets y permisos se administra directamente en AWS.
+> El workflow actualiza código existente. La creación de Lambdas, API Gateway, Cognito, programaciones de EventBridge Scheduler, reglas de EventBridge, targets y permisos se administra directamente en AWS.
 
 ## Configuración actual
 

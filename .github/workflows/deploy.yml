@@ -37,3 +37,4 @@ jobs:
         run: |
           aws lambda update-function-code --function-name crearInvitado --zip-file fileb://lambda.zip
           aws lambda update-function-code --function-name limpiarInvitados --zip-file fileb://lambda.zip
+          aws lambda update-function-code --function-name limpiarUsuarios --zip-file fileb://lambda.zip
