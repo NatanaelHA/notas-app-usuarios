@@ -86,17 +86,10 @@ const obtenerUsuariosReales = async () => {
             attr.Name === 'custom:esInvitado' && attr.Value === 'true',
         ),
     )
-    .map((usuario) => {
-      const obtenerAtributo = (nombre) =>
-        usuario.Attributes?.find((attr) => attr.Name === nombre)?.Value
-
-      return {
-        username: usuario.Username,
-        userId: obtenerAtributo('sub'),
-        email: obtenerAtributo('email'),
-        emailVerificado: obtenerAtributo('email_verified') === 'true',
-      }
-    })
+    .map((usuario) => ({
+      username: usuario.Username,
+      userId: usuario.Attributes?.find((attr) => attr.Name === 'sub')?.Value,
+    }))
 }
 
 module.exports = {

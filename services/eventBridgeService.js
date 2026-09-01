@@ -44,11 +44,10 @@ const publicarInvitadoEliminado = async (userId) => {
 /* USUARIOS REALES                                                           */
 /* ------------------------------------------------------------------------- */
 
-const publicarUsuarioParaLimpieza = async (userId, email) => {
+const publicarUsuarioParaLimpieza = async (userId) => {
   await publicarEvento('UsuarioParaLimpieza', {
     tipo: 'UsuarioParaLimpieza',
     userId,
-    email,
     programadoEn: new Date().toISOString(),
   })
 }
