@@ -1,6 +1,6 @@
 # Notas App — Servicio de usuarios
 
-Backend serverless responsable de la gestión de usuarios invitados de **Notas App**. Crea cuentas temporales en Amazon Cognito, elimina invitados vencidos y publica eventos para que otros servicios limpien los datos asociados.
+Backend serverless responsable de la gestión de identidades de **Notas App**. Crea y elimina cuentas temporales en Amazon Cognito y coordina la limpieza programada de notas para invitados y usuarios reales mediante eventos.
 
 Este repositorio forma parte de una arquitectura separada por servicios:
 
@@ -20,6 +20,9 @@ Este servicio es responsable de:
 - Detectar cuentas invitadas creadas hace más de 24 horas.
 - Eliminar invitados vencidos mediante una ejecución programada.
 - Publicar el evento `InvitadoEliminado` antes de borrar una cuenta de Cognito.
+- Listar usuarios reales confirmados y excluir las cuentas invitadas.
+- Ejecutar semanalmente `limpiarUsuarios` sin eliminar las cuentas reales de Cognito.
+- Publicar un evento `UsuarioParaLimpieza` por cada usuario real procesable.
 - Paginar el listado de usuarios para revisar todas las páginas devueltas por Cognito.
 
 Este servicio **no** almacena ni elimina notas directamente. La limpieza de notas pertenece a `notas-app-backend` y se solicita mediante EventBridge.
@@ -91,6 +94,29 @@ La programación y `InvitadoEliminado` cumplen funciones diferentes:
 
 El servicio de notas publica en `notas-emails` un mensaje de tipo `resumen_invitado` antes de borrar las notas. El servicio de notificaciones lo consume y envía por SES un correo de auditoría con las notas activas que conservaba el invitado.
 
+### Limpieza semanal de notas de usuarios reales
+
+```text
+EventBridge Scheduler (limpiarUsuariosSemanal)
+    ↓ domingos a las 03:00, America/Santiago
+limpiarUsuarios
+    ↓ lista usuarios confirmados en Cognito
+    ↓ excluye invitados
+    ↓ publica UsuarioParaLimpieza con userId
+EventBridge (regla usuarioParaLimpiezaARegistroNotas)
+    ↓
+eliminarNotasUsuario, en notas-app-backend
+    ↓ publica resumen_usuario en notas-emails
+    ↓ elimina las notas del usuario
+mailer, en notas-app-notifications
+    ↓
+SES envía el resumen al correo de auditoría
+```
+
+`limpiarUsuarios` no elimina cuentas reales de Cognito. Su función es iniciar el resumen y la eliminación semanal de sus notas. El Scheduler está habilitado, no utiliza una ventana flexible, conserva eventos durante un máximo de 24 horas, realiza hasta 3 reintentos de entrega y usa `eventos-invitados-fallidos` como DLQ.
+
+El evento no transporta el correo del usuario real. El servicio de notas asigna posteriormente el correo de auditoría verificado en SES, por lo que este flujo es compatible con el modo sandbox actual.
+
 ## Orden de eliminación y manejo de fallos
 
 El servicio publica el evento antes de eliminar al usuario de Cognito:
@@ -109,7 +135,9 @@ Este orden evita perder la solicitud de limpieza:
 
 `eventBridgeService` verifica `FailedEntryCount`. Si AWS informa una entrada fallida, lanza un error e impide que el flujo continúe hacia la eliminación en Cognito.
 
-La regla de EventBridge `invitadoEliminadoARegistroNotas` tiene configurada la cola SQS `eventos-invitados-fallidos` como DLQ. Si `eliminarNotasInvitado` agota todos los reintentos sin éxito, EventBridge deposita allí el evento original, incluido el `userId`, para que el fallo pueda revisarse y recuperarse manualmente. Esta redirección se configura en AWS sobre el destino de la regla y no desde el código de este servicio.
+Las reglas `invitadoEliminadoARegistroNotas` y `usuarioParaLimpiezaARegistroNotas` comparten la cola SQS `eventos-invitados-fallidos` como DLQ. Esta cola conserva eventos que EventBridge no pudo entregar a la Lambda de destino después de agotar su política de reintentos. No captura por sí misma errores ocurridos dentro del código después de que Lambda acepta la invocación; esos errores pertenecen al mecanismo asíncrono de Lambda.
+
+Esta redirección se configura en AWS sobre cada destino de EventBridge y no desde el código de este servicio.
 
 Cuando el fallo ocurre dentro de `limpiarInvitados`, se registra el `username` afectado y el resumen final informa cuántos invitados se eliminaron y cuántos fallaron. Los usuarios fallidos permanecen disponibles para la siguiente ejecución horaria.
 
@@ -117,12 +145,12 @@ Cuando el fallo ocurre dentro de `limpiarInvitados`, se registra el `username` a
 
 | Servicio | Uso dentro de este backend |
 |---|---|
-| AWS Lambda | Ejecuta `crearInvitado` y `limpiarInvitados`. |
+| AWS Lambda | Ejecuta `crearInvitado`, `limpiarInvitados` y `limpiarUsuarios`. |
 | API Gateway | Expone públicamente el endpoint para crear invitados. |
 | Amazon Cognito | Almacena y administra las cuentas de usuario. |
-| Amazon EventBridge Scheduler | Ejecuta `limpiarInvitados` cada hora. |
-| Amazon EventBridge | Transporta `InvitadoEliminado` mediante el Event Bus y su regla. |
-| Amazon SQS | Conserva en `eventos-invitados-fallidos` los eventos que agotaron los reintentos del destino de EventBridge. |
+| Amazon EventBridge Scheduler | Ejecuta `limpiarInvitados` cada hora y `limpiarUsuarios` cada domingo a las 03:00. |
+| Amazon EventBridge | Transporta `InvitadoEliminado` y `UsuarioParaLimpieza` mediante el Event Bus y sus reglas. |
+| Amazon SQS | Conserva en `eventos-invitados-fallidos` los eventos que EventBridge no pudo entregar a sus destinos. |
 | Amazon CloudWatch | Registra logs y métricas de las funciones. |
 
 ## Lambdas
@@ -131,6 +159,7 @@ Cuando el fallo ocurre dentro de `limpiarInvitados`, se registra el `username` a
 |---|---|---|
 | `crearInvitado` | API Gateway | Crea una cuenta temporal y elimina la más antigua si se alcanza el máximo de 50. |
 | `limpiarInvitados` | EventBridge Scheduler | Elimina invitados creados hace más de 24 horas. |
+| `limpiarUsuarios` | EventBridge Scheduler | Publica semanalmente `UsuarioParaLimpieza` para cada usuario real; no elimina su cuenta. |
 
 ## Endpoint
 
@@ -172,11 +201,30 @@ El detalle tiene esta estructura:
 
 El `userId` corresponde al atributo `sub` de Cognito y permite que el servicio de notas encuentre los elementos asociados en DynamoDB.
 
+## Evento `UsuarioParaLimpieza`
+
+El servicio publica una entrada de EventBridge con:
+
+```text
+Source: notas-app.usuarios
+DetailType: UsuarioParaLimpieza
+```
+
+El detalle incluye toda la información que necesita el servicio de notas, que no accede directamente a Cognito:
+
+```json
+{
+  "tipo": "UsuarioParaLimpieza",
+  "userId": "sub-del-usuario",
+  "programadoEn": "2026-08-30T07:00:40.000Z"
+}
+```
+
 ## Paginación de Cognito
 
-Cognito puede dividir los usuarios confirmados en varias páginas. `cognitoService` repite `ListUsersCommand` mientras reciba un `PaginationToken`, acumula todos los usuarios y después filtra aquellos cuyo atributo `custom:esInvitado` sea `true`.
+Cognito puede dividir los usuarios confirmados en varias páginas. `cognitoService` repite `ListUsersCommand` mientras reciba un `PaginationToken` y acumula todos los usuarios. Después reutiliza esa lista para separar invitados y usuarios reales.
 
-Esto evita que un invitado quede fuera de la limpieza cuando existan suficientes usuarios confirmados para ocupar más de una página.
+Esto evita que una cuenta quede fuera de cualquiera de las limpiezas cuando existan suficientes usuarios confirmados para ocupar más de una página.
 
 ## Estructura del proyecto
 
@@ -185,13 +233,13 @@ notas-app-usuarios/
 ├── functions/
 │   ├── crearInvitado/
 │   │   └── index.js
-│   └── limpiarInvitados/
+│   ├── limpiarInvitados/
+│   │   └── index.js
+│   └── limpiarUsuarios/
 │       └── index.js
 ├── services/
 │   ├── cognitoService.js
 │   └── eventBridgeService.js
-├── utils/
-│   └── response.js
 ├── .github/
 │   └── workflows/
 │       └── deploy.yml
@@ -219,7 +267,7 @@ El workflow `.github/workflows/deploy.yml` está configurado para ejecutarse con
 - `develop`, usando el environment de GitHub `development`.
 - `main`, usando el environment de GitHub `production`.
 
-El workflow instala dependencias, genera `lambda.zip` y actualiza el código de las Lambdas existentes `crearInvitado` y `limpiarInvitados` mediante AWS CLI.
+El workflow instala dependencias, genera `lambda.zip` y actualiza el código de `crearInvitado`, `limpiarInvitados` y `limpiarUsuarios` mediante AWS CLI.
 
 Secrets requeridos por el workflow:
 
