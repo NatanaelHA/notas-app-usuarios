@@ -14,7 +14,7 @@ exports.handler = async () => {
   for (const usuario of usuarios) {
     const identificador = usuario.userId || usuario.username || 'desconocido'
 
-    if (!usuario.userId || !usuario.email) {
+    if (!usuario.userId) {
       console.warn(
         `Usuario real omitido por datos incompletos: ${identificador}`,
       )
@@ -22,16 +22,8 @@ exports.handler = async () => {
       continue
     }
 
-    if (!usuario.emailVerificado) {
-      console.warn(
-        `Usuario real omitido porque su correo no está verificado: ${identificador}`,
-      )
-      omitidos++
-      continue
-    }
-
     try {
-      await publicarUsuarioParaLimpieza(usuario.userId, usuario.email)
+      await publicarUsuarioParaLimpieza(usuario.userId)
       console.log(
         `Usuario real enviado a limpieza de notas: ${usuario.userId}`,
       )
