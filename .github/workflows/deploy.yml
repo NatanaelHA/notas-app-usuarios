@@ -4,12 +4,11 @@ on:
   push:
     branches:
       - main
-      - develop
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'development' }}
+    environment: production
 
     steps:
       - name: Checkout código
